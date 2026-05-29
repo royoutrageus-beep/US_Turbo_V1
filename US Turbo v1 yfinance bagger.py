@@ -844,10 +844,34 @@ def fetch_mtf_data_fixed(ticker):
 #  FIX 5: Watchlist — use _download_single directly
 #  Solves: watchlist individual ticker fetch also broken
 # ════════════════════════════════════════════════════
+
+def _download_single(ticker, period, interval, prepost=True):
+    """Fungsi internal untuk download data dari Yahoo Finance."""
+    data = yf.download(
+        tickers=ticker, 
+        period=period, 
+        interval=interval, 
+        prepost=prepost, # Menarik data pre-market & after-hours US
+        group_by='ticker',
+        auto_adjust=True
+    )
+    return data
+
 def fetch_watchlist_ticker(ticker):
     """Direct single-ticker fetch for watchlist analysis."""
-    return _download_single(ticker, period="7d", interval="15m")
-
+    try:
+        # Coba tarik data 5 hari ke belakang (paling stabil)
+        df = _download_single(ticker, period="5d", interval="15m", prepost=True)
+        
+        # Kalau 5 hari kosong, otomatis switch ke data 1 hari terakhir
+        if df is None or df.empty:
+            print(f"[-] Data {ticker} kosong dengan period 5d. Mencoba alternatif period 1d...")
+            df = _download_single(ticker, period="1d", interval="15m", prepost=True)
+            
+        return df
+    except Exception as e:
+        print(f"[-] Error fetching {ticker}: {e}")
+        return None
 
 # ════════════════════════════════════════════════════
 #  SUMMARY OF ALL CHANGES
