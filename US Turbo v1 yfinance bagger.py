@@ -697,11 +697,6 @@ def send_telegram(results_top, source="Scanner"):
 # ════════════════════════════════════════════════════
 #  DATA FETCH
 # ════════════════════════════════════════════════════
-@"""
-US TURBO v1.1 — PATCH FILE
-Replace fetch_intraday + tambah 2 helper functions (_safe_extract_df, _download_single)
-Apply ke us_turbo_v1.py sebelum fungsi fetch_intraday yang lama.
-"""
 
 # ════════════════════════════════════════════════════
 #  FIX 1: Helper — safe extract single ticker df
