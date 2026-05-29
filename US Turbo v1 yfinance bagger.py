@@ -1404,7 +1404,7 @@ with tab_watchlist:
                 for t in raw_wl:
                     df=None
                     try:
-                        df = _download_single(t, period="7d", interval="15m"
+                        df = _download_single(t, period="7d", interval="15m",
                                         progress=False, auto_adjust=True, threads=False)
                         if not raw.empty:
                             if isinstance(raw.columns, pd.MultiIndex): raw.columns=raw.columns.droplevel(1)
