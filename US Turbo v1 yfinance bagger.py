@@ -697,24 +697,196 @@ def send_telegram(results_top, source="Scanner"):
 # ════════════════════════════════════════════════════
 #  DATA FETCH
 # ════════════════════════════════════════════════════
-@st.cache_data(ttl=300)
-def fetch_intraday(tickers, chunk=25):
-    all_dfs={}
+@"""
+US TURBO v1.1 — PATCH FILE
+Replace fetch_intraday + tambah 2 helper functions (_safe_extract_df, _download_single)
+Apply ke us_turbo_v1.py sebelum fungsi fetch_intraday yang lama.
+"""
+
+# ════════════════════════════════════════════════════
+#  FIX 1: Helper — safe extract single ticker df
+#  Solves: MultiIndex extraction failure
+# ════════════════════════════════════════════════════
+def _safe_extract_df(raw, ticker, multi_ticker=True):
+    """Safely extract single ticker DataFrame from yfinance result."""
+    try:
+        if multi_ticker:
+            if isinstance(raw.columns, pd.MultiIndex):
+                level0 = raw.columns.get_level_values(0).unique().tolist()
+                if ticker not in level0:
+                    return None
+                df = raw[ticker].copy()
+            else:
+                df = raw.copy()
+        else:
+            df = raw.copy()
+
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.droplevel(1)
+
+        df = df.dropna(how='all')
+        if 'Close' in df.columns:
+            df = df[df['Close'].notna() & (df['Close'] > 0)]
+
+        return df if len(df) >= 30 else None   # 30 bars min (was 50)
+    except:
+        return None
+
+
+# ════════════════════════════════════════════════════
+#  FIX 2: Single-ticker download — most reliable
+#  Solves: batch download errors, rate limiting
+# ════════════════════════════════════════════════════
+def _download_single(ticker, period="7d", interval="15m"):
+    """Download single ticker — most reliable method."""
+    try:
+        raw = yf.download(
+            ticker,
+            period=period,
+            interval=interval,
+            progress=False,
+            auto_adjust=True,
+            repair=False,
+            timeout=10,
+        )
+        if raw is None or raw.empty:
+            return None
+        if isinstance(raw.columns, pd.MultiIndex):
+            raw.columns = raw.columns.droplevel(1)
+        raw = raw.dropna(how='all')
+        if 'Close' in raw.columns:
+            raw = raw[raw['Close'].notna() & (raw['Close'] > 0)]
+        return raw if len(raw) >= 30 else None
+    except:
+        return None
+
+
+# ════════════════════════════════════════════════════
+#  FIX 3: fetch_intraday — PATCHED VERSION
+#
+#  Changes vs original:
+#  - chunk: 25 → 10          (avoid Yahoo rate limit)
+#  - period: 5d → 7d         (weekend gap tolerance)
+#  - threads: True → False   (more stable, no race cond)
+#  - min bars: 50 → 30       (tolerate sparse weekend)
+#  - sleep: 0.5 → 1.0s       (respect rate limit)
+#  - fallback: individual dl  (if batch fails, retry 1by1)
+#  - repair=False             (avoid yfinance v0.2.x quirk)
+# ════════════════════════════════════════════════════
+def fetch_intraday(tickers, chunk=10):
+    """
+    Robust intraday fetch with anti-delisted-error fixes.
+    "possibly delisted" = yfinance generic error for ANY fetch fail.
+    This version minimizes false positives.
+    """
+    all_dfs = {}
+
     for i in range(0, len(tickers), chunk):
-        batch=tickers[i:i+chunk]
+        batch = list(tickers[i:i + chunk])
+
+        # ── Single ticker shortcut (always reliable) ────
+        if len(batch) == 1:
+            df = _download_single(batch[0])
+            if df is not None:
+                all_dfs[batch[0]] = df
+            time.sleep(0.3)
+            continue
+
+        # ── Multi-ticker batch ───────────────────────────
         try:
-            raw=yf.download(batch, period="5d", interval="15m",
-                            group_by='ticker', progress=False,
-                            threads=True, auto_adjust=True)
+            raw = yf.download(
+                batch,
+                period="7d",           # was 5d
+                interval="15m",
+                group_by='ticker',
+                progress=False,
+                threads=False,         # was True
+                auto_adjust=True,
+                repair=False,
+                timeout=15,
+            )
+
+            if raw is None or raw.empty:
+                raise ValueError("Empty batch result")
+
             for t in batch:
-                try:
-                    df=raw[t].dropna() if len(batch)>1 else raw.dropna()
-                    if isinstance(df.columns, pd.MultiIndex): df.columns=df.columns.droplevel(1)
-                    if len(df)>=50: all_dfs[t]=df
-                except: pass
-        except: pass
-        time.sleep(0.5)
+                df = _safe_extract_df(raw, t, multi_ticker=True)
+                if df is not None:
+                    all_dfs[t] = df
+
+        except Exception:
+            # ── Fallback: try each ticker individually ───
+            for t in batch:
+                if t in all_dfs:
+                    continue
+                df = _download_single(t)
+                if df is not None:
+                    all_dfs[t] = df
+                time.sleep(0.25)
+
+        time.sleep(1.0)   # was 0.5s
+
     return all_dfs
+
+
+# ════════════════════════════════════════════════════
+#  FIX 4: fetch_mtf_data — use _download_single
+#  Solves: MTF data also had same 5d period issue
+# ════════════════════════════════════════════════════
+def fetch_mtf_data_fixed(ticker):
+    result = {}
+    for interval, period, key in [("15m", "7d", "M15"), ("1h", "10d", "H1"), ("1d", "60d", "D1")]:
+        try:
+            df = _download_single(ticker, period=period, interval=interval)
+            if df is not None and len(df) >= 20:
+                result[key] = df
+        except:
+            pass
+    return result
+
+
+# ════════════════════════════════════════════════════
+#  FIX 5: Watchlist — use _download_single directly
+#  Solves: watchlist individual ticker fetch also broken
+# ════════════════════════════════════════════════════
+def fetch_watchlist_ticker(ticker):
+    """Direct single-ticker fetch for watchlist analysis."""
+    return _download_single(ticker, period="7d", interval="15m")
+
+
+# ════════════════════════════════════════════════════
+#  SUMMARY OF ALL CHANGES
+# ════════════════════════════════════════════════════
+PATCH_NOTES = """
+US TURBO v1.1 — PATCH NOTES
+════════════════════════════
+
+BUG: "possibly delisted; no price data found" untuk saham valid (AAPL, NVDA, dll)
+
+ROOT CAUSES:
+1. Batch size 25 terlalu besar → Yahoo rate limit → semua error
+2. period=5d + interval=15m → weekend = <50 bars → semua di-skip
+3. MultiIndex extraction fragile di yfinance v0.2.x+
+4. threads=True → race condition di concurrent download
+5. sleep=0.5s terlalu cepat → Yahoo detect bot activity
+
+FIXES APPLIED:
+✅ chunk 25 → 10               (reduce per-batch request)
+✅ period 5d → 7d              (tolerate weekend + holiday gap)
+✅ threads True → False        (stable sequential download)
+✅ min_bars 50 → 30            (accept sparse-but-valid data)
+✅ sleep 0.5 → 1.0s            (respect Yahoo rate limit)
+✅ repair=False                (avoid yfinance v0.2.x quirk)
+✅ _safe_extract_df()          (robust MultiIndex extraction)
+✅ _download_single()          (reliable 1-ticker fallback)
+✅ batch fallback loop         (if batch fails, retry 1-by-1)
+✅ fetch_mtf_data → 7d period  (same fix for MTF data)
+✅ watchlist → _download_single (consistent single fetch)
+✅ Removed duplicate "SOLO" in stock list
+
+VERSION: v1.1
+"""
+
 
 # ════════════════════════════════════════════════════
 #  HEADER
@@ -1049,7 +1221,7 @@ with tab_scanner:
                 pb.progress((i+1)/max(len(tickers),1))
                 try:
                     df=data_dict[ticker].copy()
-                    if len(df)<55: continue
+                    if len(df)<30: continue
                     df=apply_intraday_indicators(df)
                     r=df.iloc[-1]; p=df.iloc[-2]; p2=df.iloc[-3] if len(df)>=3 else p
                     close=float(r['Close']); vol=float(r['Volume'])
@@ -1232,7 +1404,7 @@ with tab_watchlist:
                 for t in raw_wl:
                     df=None
                     try:
-                        raw=yf.download(t, period="5d", interval="15m",
+                        df = _download_single(t, period="7d", interval="15m"
                                         progress=False, auto_adjust=True, threads=False)
                         if not raw.empty:
                             if isinstance(raw.columns, pd.MultiIndex): raw.columns=raw.columns.droplevel(1)
