@@ -15,7 +15,9 @@ ny_tz   = pytz.timezone('America/New_York')
 for _k, _v in [("tt_last_sent", set()), ("wl_results", []),
                 ("wl_mode_used", ""), ("scan_results", []),
                 ("data_dict", {}), ("last_scan_time", None),
-                ("last_scan_mode", "Scalping ⚡")]:
+                ("last_scan_mode", "Scalping ⚡"),
+                ("sector_data", {}), ("gapup_results", []),
+                ("overnight_results", []), ("beta_data", [])]:
     if _k not in st.session_state: st.session_state[_k] = _v
 
 st.set_page_config(layout="wide", page_title="US Turbo v1.1", page_icon="🦅", initial_sidebar_state="collapsed")
@@ -753,21 +755,48 @@ SECTORS={
 }
 FED_SENSITIVE_SECTORS=["Financials","Real Estate","Utilities"]
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=600)
 def fetch_sector_rotation(sector_stocks):
-    results=[]; tickers=sector_stocks[:10]
-    try:
-        raw=yf.download(tickers,period="3d",interval="1d",group_by="ticker",progress=False,threads=False,auto_adjust=True)
-        for t in tickers:
-            try:
-                df=_yf_extract(raw,t,len(tickers))
-                if df is None or len(df)<2: continue
-                close=float(df["Close"].iloc[-1]); prev=float(df["Close"].iloc[-2])
-                chg=(close-prev)/prev*100; vol=float(df["Volume"].iloc[-1])
-                avg_v=float(df["Volume"].mean()); rvol=vol/avg_v if avg_v>0 else 1.0
-                results.append({"ticker":t,"close":close,"chg":chg,"rvol":round(rvol,2)})
-            except: pass
-    except: pass
+    """Humanized fetch — small batches + variable delay, pakai _YF_SESSION."""
+    results = []
+    tickers = sector_stocks[:10]
+    batches = _random_chunks(tickers, min_sz=3, max_sz=6)
+    n_b = len(batches)
+    for bi, batch in enumerate(batches):
+        if not batch: continue
+        try:
+            raw = yf.download(list(batch), period="5d", interval="1d",
+                              group_by="ticker", progress=False,
+                              threads=False, auto_adjust=True, session=_YF_SESSION)
+            for t in batch:
+                try:
+                    df = _yf_extract(raw, t, len(batch))
+                    if df is None or len(df) < 2: continue
+                    close = float(df["Close"].iloc[-1]); prev = float(df["Close"].iloc[-2])
+                    chg = (close - prev) / prev * 100
+                    vol = float(df["Volume"].iloc[-1])
+                    avg_v = float(df["Volume"].mean())
+                    rvol = vol / avg_v if avg_v > 0 else 1.0
+                    results.append({"ticker": t, "close": close, "chg": chg, "rvol": round(rvol, 2)})
+                except: pass
+        except:
+            # individual fallback
+            for t in batch:
+                try:
+                    raw_s = yf.download(t, period="5d", interval="1d",
+                                        progress=False, auto_adjust=True,
+                                        threads=False, session=_YF_SESSION)
+                    df = _yf_extract(raw_s, t, 1)
+                    if df is None or len(df) < 2: continue
+                    close = float(df["Close"].iloc[-1]); prev = float(df["Close"].iloc[-2])
+                    chg = (close - prev) / prev * 100
+                    vol = float(df["Volume"].iloc[-1])
+                    avg_v = float(df["Volume"].mean())
+                    rvol = vol / avg_v if avg_v > 0 else 1.0
+                    results.append({"ticker": t, "close": close, "chg": chg, "rvol": round(rvol, 2)})
+                except: pass
+                time.sleep(random.uniform(0.3, 0.8))
+        _human_sleep(bi, n_b)
     return results
 
 @st.cache_data(ttl=300)
@@ -1370,7 +1399,9 @@ with tab_sector:
     if do_sector:
         with st.spinner("Fetching US sector data..."):
             sec_data={}
-            for sec_name,sec_stocks in SECTORS.items():
+            secs_list=list(SECTORS.items())
+            n_secs=len(secs_list)
+            for si,(sec_name,sec_stocks) in enumerate(secs_list):
                 results=fetch_sector_rotation(sec_stocks)
                 if results:
                     avg_chg=sum(r["chg"] for r in results)/len(results)
@@ -1379,6 +1410,8 @@ with tab_sector:
                     sec_data[sec_name]={"avg_chg":round(avg_chg,2),"avg_rvol":round(avg_rvol,2),
                                         "bullish":bullish,"total":len(results),"stocks":results,
                                         "is_fed":sec_name in FED_SENSITIVE_SECTORS}
+                # Humanized inter-sector pause
+                _human_sleep(si, n_secs)
             st.session_state.sector_data=sec_data
     if st.session_state.sector_data:
         sorted_secs=sorted(st.session_state.sector_data.items(),key=lambda x:x[1]["avg_chg"],reverse=True)
