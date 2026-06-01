@@ -656,11 +656,15 @@ def send_telegram(results_top, source="Scanner"):
         em="💎" if "BAGGER" in sig else("🏆" if("RIPPING" in sig or "REVERSAL" in sig) else("🔥" if "POTENSIAL" in sig else "👀"))
         te="📈" if "▲" in r.get('Trend','') else("📉" if "▼" in r.get('Trend','') else "➡️")
         bar="█"*int(r['Score'])+"░"*(6-int(r['Score']))
+        p_d=r.get('Price_fmt',f"Rp{int(r.get('Price(IDR)',r.get('Price(USD)',0)*16200)):,}")
+        tp_d=r.get('TP_fmt',f"Rp{int(r.get('TP_IDR',r.get('TP_USD',r.get('TP',0))*16200)):,}")
+        sl_d=r.get('SL_fmt',f"Rp{int(r.get('SL_IDR',r.get('SL_USD',r.get('SL',0))*16200)):,}")
+        p_usd=r.get('Price(USD)',r.get('Price',0))
         body+=(f"\n{em} *{r['Ticker']}*  `{sig}`\n"
-               f"   💰 Price: `${r['Price']:.2f}` {te}\n"
+               f"   💰 {p_d} (${p_usd:.2f}) {te}\n"
                f"   📊 Score: `[{bar}] {r['Score']}/6`\n"
                f"   📈 RSI-EMA: `{r.get('RSI-EMA',0)}` | RVOL: `{r.get('RVOL',0)}x`\n"
-               f"   🎯 TP: `${r['TP']:.2f}` | 🛑 SL: `${r['SL']:.2f}` | R:R `{r['R:R']}`\n"
+               f"   🎯 TP: {tp_d} | SL: {sl_d} | R:R `{r['R:R']}`\n"
                f"   💡 _{r.get('Reasons','')[:60]}_\n")
     footer=f"\n{sep}\n⚡ _US Turbo v1.1 · 15M · NYSE/NASDAQ_\n⚠️ _NOT financial advice. DYOR!_"
     try:
@@ -1341,7 +1345,7 @@ with tab_overnight:
             msg=(f"🌙 *US OVERNIGHT PLAY*\n⏰ `{now_on.strftime('%H:%M:%S')} ET`\n{sep}\n")
             for r in on_res[:5]:
                 bar="█"*int(r['Score'])+"░"*(6-int(r['Score']))
-                msg+=(f"\n🌙 *{r['Ticker']}* `{r['Signal']}`\n💰 Price: `${r['Price']:.2f}`\n"
+                msg+=(f"\n🌙 *{r['Ticker']}* `{r['Signal']}`\n💰 {r.get('Price_fmt', f"${r.get('Price(USD)',0):.2f}")}\n"
                       f"📊 `[{bar}] {r['Score']}/6`\n📈 RSI: `{r['RSI-EMA']}` | RVOL: `{r['RVOL']}x`\n"
                       f"🎯 TP: `${r['TP']:.2f}` | SL: `${r['SL']:.2f}`\n💡 _{r['Reasons'][:50]}_\n")
             msg+=f"\n{sep}\n🌙 _Entry 3PM ET · Exit 9:30AM ET_\n⚠️ _NOT financial advice!_"
@@ -1466,7 +1470,7 @@ with tab_gapup:
             gu_html+=f"""<div class="signal-card {'gacor' if is_gap else 'potensial'}">
               <div style="display:flex;justify-content:space-between;">
                 <div><div class="sc-ticker">{row['Ticker']}</div>
-                <div class="sc-price" style="color:{chg_c}">${row['Price']:.2f} ({row['Chg %']:+.1f}%)</div></div>
+                <div class="sc-price" style="color:{chg_c}">${row.get('Price',0):.2f} ({row['Chg %']:+.1f}%)</div></div>
                 <div style="text-align:right"><div style="font-family:Space Mono,monospace;font-size:9px;color:#4a5568">GAP SCORE</div>
                 <div style="font-family:Space Mono,monospace;font-size:22px;font-weight:700;color:{sc_col}">{row['Gap Score']}</div></div>
               </div>
