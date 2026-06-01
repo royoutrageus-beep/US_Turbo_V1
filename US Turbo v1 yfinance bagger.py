@@ -936,9 +936,9 @@ with tab_scanner:
         with sc3:
             st.markdown('<div class="settings-label">DISPLAY</div>',unsafe_allow_html=True)
             view_mode=st.radio("View",["Card View 🃏","Table View 📊"],label_visibility="collapsed",key="view_mode")
-            quick_mode=st.toggle("⚡ Quick (200 stocks)",value=False,key="quick_mode")
+            scan_size=st.radio("Scan Size",["100 ⚡","200 🔥","Full 🦅"],index=1,horizontal=True,key="scan_size_radio")
             st.caption(f"🎯 Regime: {regime} · VIX: {vix_val:.1f} {vix_lbl}")
-            st.caption(f"📊 {len(raw_stocks)} stocks available")
+            st.caption(f"📊 {len(raw_stocks)} stocks available · Default: 200")
 
     do_scan=st.button("🦅 START SCAN NOW",type="primary",use_container_width=True,key="btn_scan")
     _now_check=datetime.now(ny_tz).timestamp(); auto_triggered=False
@@ -947,7 +947,10 @@ with tab_scanner:
             do_scan=True; auto_triggered=True
 
     if do_scan:
-        scan_list=stocks_yf[:200] if quick_mode else stocks_yf
+        _sz=st.session_state.get("scan_size_radio","200 🔥")
+        if "100" in _sz:   scan_list=stocks_yf[:100]
+        elif "200" in _sz: scan_list=stocks_yf[:200]
+        else:              scan_list=stocks_yf
         prog_ph=st.empty()
         label="🔄 AUTO-REFRESH" if auto_triggered else "🦅 SCANNING"
         prog_ph.markdown(f'<div style="color:#00e5ff;font-family:Space Mono,monospace;font-size:12px;">{label} {len(scan_list)} stocks ({scan_mode})...</div>',unsafe_allow_html=True)
@@ -1033,7 +1036,7 @@ with tab_scanner:
 
     results=st.session_state.scan_results
     if not results and not do_scan:
-        st.markdown(f'<div style="text-align:center;padding:48px;color:#4a5568;font-family:Space Mono,monospace;"><div style="font-size:36px;margin-bottom:12px;">🦅</div><div style="font-size:13px;letter-spacing:2px;">CLICK SCAN TO START</div><div style="font-size:10px;margin-top:8px;color:#2d3748;">{"⚡ Quick: 200 stocks" if quick_mode else f"Full: {len(raw_stocks)} stocks"} · {regime} · VIX: {vix_val:.1f}</div></div>',unsafe_allow_html=True)
+        st.markdown(f'<div style="text-align:center;padding:48px;color:#4a5568;font-family:Space Mono,monospace;"><div style="font-size:36px;margin-bottom:12px;">🦅</div><div style="font-size:13px;letter-spacing:2px;">CLICK SCAN TO START</div><div style="font-size:10px;margin-top:8px;color:#2d3748;">100 ⚡ / 200 🔥 / Full 🦅 · Regime: {regime} · VIX: {vix_val:.1f}</div></div>',unsafe_allow_html=True)
     elif results:
         df_out=pd.DataFrame(results).sort_values("Score",ascending=False).reset_index(drop=True)
         gacor=df_out[df_out["Signal"].str.contains("RIPPING|REVERSAL",na=False)]
@@ -1444,11 +1447,14 @@ with tab_gapup:
     st.markdown('<div style="font-family:Space Mono,monospace;font-size:10px;color:#4a5568;margin-bottom:14px;padding:10px 14px;background:#0d1117;border-radius:6px;border-left:3px solid #00ff88;">Detect US stocks likely to <b style="color:#00ff88">Gap Up</b> tomorrow open.</div>',unsafe_allow_html=True)
     gu_c1,gu_c2=st.columns(2)
     with gu_c1: gu_min_score=st.slider("Min Gap Score",1,6,3,key="gu_score")
-    with gu_c2: gu_quick=st.toggle("⚡ Quick Scan (200)",value=True,key="gu_quick")
+    with gu_c2: gu_size=st.radio("Size",["100 ⚡","200 🔥","Full 🦅"],index=1,horizontal=True,key="gu_size")
     do_gapup=st.button("📈 SCAN GAP UP",type="primary",use_container_width=True,key="btn_gapup")
     if "gapup_results" not in st.session_state: st.session_state.gapup_results=[]
     if do_gapup:
-        scan_tickers=stocks_yf[:200] if gu_quick else stocks_yf
+        _gsz=st.session_state.get("gu_size","200 🔥")
+        if "100" in _gsz:   scan_tickers=stocks_yf[:100]
+        elif "200" in _gsz: scan_tickers=stocks_yf[:200]
+        else:               scan_tickers=stocks_yf
         with st.spinner(f"Scanning {len(scan_tickers)} stocks..."):
             gu_res=scan_gap_up(scan_tickers)
             gu_res=[r for r in gu_res if r["Gap Score"]>=gu_min_score]
