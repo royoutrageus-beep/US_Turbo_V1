@@ -1286,6 +1286,11 @@ with tab_scanner:
                 min_score=st.slider("Min Score (0-6)",0,6,2,key="msc")
                 vol_thresh=st.slider("Min RVOL Spike",1.0,5.0,1.5,0.1,key="vol")
             min_turn=st.number_input("Min Turnover (M Rp)",value=100,step=100,key="trn")*1_000_000
+            st.caption("US Liquidity gate (Avg Dollar Volume proxy) — biar gak nyasar saham illiquid")
+            min_avg_dollar_vol=st.number_input("Min Avg Dollar Vol ($M)",value=20,step=1,key="min_avg_dv")*1_000_000
+            min_avg_volume=st.number_input("Min Avg Volume (shares)",value=300000,step=50000,key="min_avg_vol")
+
+
         with sc3:
             st.markdown('<div class="settings-label">TAMPILAN</div>',unsafe_allow_html=True)
             view_mode=st.radio("View",["Card View 🃏","Table View 📊"],label_visibility="collapsed",key="vm")
@@ -1465,9 +1470,25 @@ with tab_scanner:
                             gain_pct=float(r.get("ROC3",0))*100
                         except:
                             turnover=close*max(vol,0); gain_pct=float(r.get("ROC3",0))*100
+                    # ── Liquid/quality gate (US) ──
+                    # Avg Dollar Volume (proxy) from intraday series (US requirement: consistency)
+                    avg_vol=float(df["Volume"].tail(20).mean()) if "Volume" in df.columns else 0.0
+                    avg_close=float(df["Close"].tail(20).mean()) if "Close" in df.columns else close
+                    avg_dollar_vol=avg_vol*avg_close
+
                     rvol_raw=float(r["RVOL"]) if not np.isnan(float(r["RVOL"])) else 1.0
                     rvol=rvol_raw
-                    if turnover<min_turn or rvol<vol_thresh: skip_reasons["turnover"]+=1; continue
+
+                    # 1) hard liquidation proxy: avoid illiquid names
+                    if avg_dollar_vol < min_avg_dollar_vol or avg_vol < min_avg_volume:
+                        skip_reasons["turnover"]+=1
+                        continue
+
+                    # 2) keep existing RVOL gate for quality
+                    if turnover<min_turn or rvol<vol_thresh:
+                        skip_reasons["turnover"]+=1
+                        continue
+
                     if scan_mode=="Scalping ⚡":   sc,reasons,_=score_scalping(r,p,p2)
                     elif scan_mode=="Momentum 🚀": sc,reasons,_=score_momentum(r,p,p2)
                     elif scan_mode=="Bagger 💎":   sc,reasons,_=score_bagger(r,p,p2,df)
